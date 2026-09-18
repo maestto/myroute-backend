@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml README.md alembic.ini ./
 COPY app ./app
 COPY alembic ./alembic
-COPY scripts/entrypoint.sh ./scripts/entrypoint.sh
+COPY scripts ./scripts
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir . \

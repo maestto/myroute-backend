@@ -1,8 +1,8 @@
 """Trip member model."""
 
-from datetime import datetime, timezone
-from enum import Enum
 import uuid
+from datetime import UTC, datetime
+from enum import StrEnum
 
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
-class TripMemberRole(str, Enum):
+class TripMemberRole(StrEnum):
     """Member role within a trip."""
 
     OWNER = "owner"
@@ -35,5 +35,5 @@ class TripMember(Base):
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
     )

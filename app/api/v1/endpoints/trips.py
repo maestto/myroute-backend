@@ -11,13 +11,14 @@ from app.api.v1.schemas.member import TripMemberRead
 from app.api.v1.schemas.stop import TripStopCreateRequest, TripStopRead, TripStopUpdateRequest
 from app.api.v1.schemas.trip import TripCreateRequest, TripDetailRead, TripRead
 from app.core.config import settings
-from app.db.session import get_db
 from app.db.models.user import User
+from app.db.session import get_db
 from app.services.invites import (
     create_trip_invite,
     get_trip_member,
     list_trip_members_with_users,
 )
+from app.services.stops import create_trip_stop, delete_trip_stop, list_trip_stops, update_trip_stop
 from app.services.trips import (
     create_trip_for_owner,
     get_trip_budget_spent,
@@ -25,7 +26,6 @@ from app.services.trips import (
     get_trip_members_count,
     list_user_trips,
 )
-from app.services.stops import create_trip_stop, delete_trip_stop, list_trip_stops, update_trip_stop
 
 router = APIRouter(prefix="/trips")
 

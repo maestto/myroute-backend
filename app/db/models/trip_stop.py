@@ -1,7 +1,7 @@
 """Trip stop model."""
 
-from datetime import date
 import uuid
+from datetime import date
 
 from sqlalchemy import Date, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column

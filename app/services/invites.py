@@ -1,6 +1,6 @@
 """Invites and members use-cases."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from secrets import token_urlsafe
 from uuid import UUID
 
@@ -46,7 +46,7 @@ def create_trip_invite(
         created_by_user_id=created_by_user_id,
         token=_generate_unique_token(db),
         role=role,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=expires_in_hours),
+        expires_at=datetime.now(UTC) + timedelta(hours=expires_in_hours),
         max_uses=max_uses,
         used_count=0,
     )
@@ -66,10 +66,10 @@ def accept_trip_invite(db: Session, token: str, user_id: UUID) -> tuple[UUID, st
     if existing_member:
         return invite.trip_id, existing_member.role
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expires_at = invite.expires_at
     if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
+        expires_at = expires_at.replace(tzinfo=UTC)
 
     if expires_at < now or invite.used_count >= invite.max_uses:
         raise ValueError("Invite is expired or exhausted")

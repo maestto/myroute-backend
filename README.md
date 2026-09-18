@@ -2,13 +2,33 @@
 
 Backend-часть проекта MyRoute на `FastAPI`.
 
-## Быстрый старт
+## Быстрый старт (Docker, всё одной командой)
+
+Требуется Docker. Репозитории `myroute-backend` и `myroute-frontend` должны лежать рядом.
+
+```bash
+docker compose up --build
+```
+
+Поднимает PostgreSQL, применяет миграции, заливает демо-данные и запускает backend (`http://localhost:8000`) и frontend (`http://localhost:5173`).
+
+Демо-аккаунты (пароль у всех `demo-pass-123`):
+
+- `demo@myroute.dev` — владелец поездки «Неделя в Сочи», редактор «Казань — Нижний Новгород»
+- `ivan@myroute.dev` — владелец «Казань — Нижний Новгород»
+- `olga@myroute.dev`, `anna@myroute.dev` — участники с ролями viewer
+- Открытый инвайт-токен для «Сочи» (роль editor): `demo-invite-sochi`
+
+Переменные (см. `.env.example`): `SEED_DEMO_DATA=0` отключает сиды, `FRONTEND_DIR` — путь к репо фронтенда.
+
+## Локальный запуск без Docker
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[dev]
-alembic upgrade head
+alembic upgrade head            # нужен PostgreSQL, см. DATABASE_URL в app/core/config.py
+python -m scripts.seed          # опционально, демо-данные
 uvicorn app.main:app --reload
 ```
 
