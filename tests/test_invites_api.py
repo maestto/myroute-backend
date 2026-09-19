@@ -149,3 +149,41 @@ def test_accept_unknown_invite_returns_404() -> None:
         headers={"Authorization": f"Bearer {user_token}"},
     )
     assert response.status_code == 404
+
+
+def test_owner_adds_registered_user_by_email() -> None:
+    client = TestClient(app)
+    owner_token = _register_and_login(client, "owner.byemail@example.com")
+    trip_id = _create_trip(client, owner_token, title="By email trip")
+    headers = {"Authorization": f"Bearer {owner_token}"}
+    _register_and_login(client, "friend.byemail@example.com")
+
+    added = client.post(
+        f"/api/v1/trips/{trip_id}/members",
+        headers=headers,
+        json={"email": "Friend.ByEmail@example.com", "role": "editor"},
+    )
+    assert added.status_code == 201
+    assert added.json()["email"] == "friend.byemail@example.com"
+    assert added.json()["role"] == "editor"
+
+    duplicate = client.post(
+        f"/api/v1/trips/{trip_id}/members", headers=headers, json={"email": "friend.byemail@example.com"}
+    )
+    assert duplicate.status_code == 409
+
+    unknown = client.post(
+        f"/api/v1/trips/{trip_id}/members", headers=headers, json={"email": "nobody.byemail@example.com"}
+    )
+    assert unknown.status_code == 404
+
+    members = client.get(f"/api/v1/trips/{trip_id}/members", headers=headers).json()
+    assert {m["role"] for m in members} == {"owner", "editor"}
+
+    friend_token = _register_and_login(client, "friend.byemail@example.com")
+    forbidden = client.post(
+        f"/api/v1/trips/{trip_id}/members",
+        headers={"Authorization": f"Bearer {friend_token}"},
+        json={"email": "owner.byemail@example.com"},
+    )
+    assert forbidden.status_code == 403

@@ -141,3 +141,69 @@ def test_owner_can_delete_trip_but_editor_cannot() -> None:
 
     gone = client.get(f"/api/v1/trips/{trip_id}", headers={"Authorization": f"Bearer {owner_token}"})
     assert gone.status_code == 404
+
+
+def _trip_with_stop(client: TestClient, token: str) -> str:
+    headers = {"Authorization": f"Bearer {token}"}
+    trip_id = client.post(
+        "/api/v1/trips",
+        headers=headers,
+        json={"title": "Editable", "start_date": "2026-09-01", "end_date": "2026-09-10", "currency": "USD"},
+    ).json()["id"]
+    client.post(
+        f"/api/v1/trips/{trip_id}/stops",
+        headers=headers,
+        json={"location_name": "Mid", "date_from": "2026-09-05", "date_to": "2026-09-06"},
+    )
+    return trip_id
+
+
+def test_owner_edits_trip_and_dates_cannot_exclude_stops() -> None:
+    client = TestClient(app)
+    owner_token = _register_and_login(client, "trips.edit.owner@example.com", "strong-password-123")
+    headers = {"Authorization": f"Bearer {owner_token}"}
+    trip_id = _trip_with_stop(client, owner_token)
+
+    edited = client.patch(
+        f"/api/v1/trips/{trip_id}",
+        headers=headers,
+        json={"title": "  Renamed  ", "currency": "eur", "budget_total": "999.50", "base_city": "Rome"},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["title"] == "Renamed"
+    assert edited.json()["currency"] == "EUR"
+    assert edited.json()["budget_total"] == "999.50"
+    assert edited.json()["base_city"] == "Rome"
+
+    widened = client.patch(f"/api/v1/trips/{trip_id}", headers=headers, json={"end_date": "2026-09-20"})
+    assert widened.status_code == 200
+    assert widened.json()["end_date"] == "2026-09-20"
+
+    too_narrow = client.patch(f"/api/v1/trips/{trip_id}", headers=headers, json={"end_date": "2026-09-04"})
+    assert too_narrow.status_code == 400
+    assert "existing stops" in too_narrow.json()["detail"]
+
+    inverted = client.patch(f"/api/v1/trips/{trip_id}", headers=headers, json={"start_date": "2026-09-25"})
+    assert inverted.status_code == 400
+
+    unchanged = client.get(f"/api/v1/trips/{trip_id}", headers=headers).json()["trip"]
+    assert unchanged["start_date"] == "2026-09-01"
+    assert unchanged["end_date"] == "2026-09-20"
+
+
+def test_editor_cannot_edit_trip() -> None:
+    client = TestClient(app)
+    owner_token = _register_and_login(client, "trips.edit.owner2@example.com", "strong-password-123")
+    trip_id = _trip_with_stop(client, owner_token)
+    invite_token = client.post(
+        f"/api/v1/trips/{trip_id}/invites",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"role": "editor"},
+    ).json()["token"]
+    editor_token = _register_and_login(client, "trips.edit.editor@example.com", "strong-password-123")
+    client.post(f"/api/v1/invites/{invite_token}/accept", headers={"Authorization": f"Bearer {editor_token}"})
+
+    response = client.patch(
+        f"/api/v1/trips/{trip_id}", headers={"Authorization": f"Bearer {editor_token}"}, json={"title": "Hijack"}
+    )
+    assert response.status_code == 403

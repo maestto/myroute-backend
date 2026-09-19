@@ -19,6 +19,18 @@ class TripCreateRequest(BaseModel):
     budget_total: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
 
 
+class TripUpdateRequest(BaseModel):
+    """Partial trip update; only provided fields change."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+    start_date: date | None = None
+    end_date: date | None = None
+    base_city: str | None = Field(default=None, max_length=255)
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    budget_total: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+
+
 class TripRead(BaseModel):
     """Public trip representation."""
 

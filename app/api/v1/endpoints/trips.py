@@ -8,13 +8,14 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import get_current_user
 from app.api.v1.schemas.invite import TripInviteCreateRequest, TripInviteRead
-from app.api.v1.schemas.member import TripMemberRead
+from app.api.v1.schemas.member import TripMemberAddRequest, TripMemberRead
 from app.api.v1.schemas.stop import TripStopCreateRequest, TripStopRead, TripStopUpdateRequest
-from app.api.v1.schemas.trip import TripCreateRequest, TripDetailRead, TripRead
+from app.api.v1.schemas.trip import TripCreateRequest, TripDetailRead, TripRead, TripUpdateRequest
 from app.core.config import settings
 from app.db.models.user import User
 from app.db.session import get_db
 from app.services.invites import (
+    add_member_by_email,
     create_trip_invite,
     get_trip_member,
     list_trip_members_with_users,
@@ -27,6 +28,7 @@ from app.services.trips import (
     get_trip_for_user,
     get_trip_members_count,
     list_user_trips,
+    update_trip,
 )
 
 router = APIRouter(prefix="/trips")
@@ -77,6 +79,30 @@ def get_trip(
     )
 
 
+@router.patch("/{trip_id}", response_model=TripRead)
+def edit_trip(
+    trip_id: UUID,
+    payload: TripUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TripRead:
+    """Update trip settings. Owner only."""
+    member = get_trip_member(db=db, trip_id=trip_id, user_id=current_user.id)
+    if not member:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found")
+    if member.role != "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only owner can edit trip")
+
+    trip = get_trip_for_user(db=db, trip_id=trip_id, user_id=current_user.id)
+    if trip is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found")
+    try:
+        trip = update_trip(db=db, trip=trip, payload=payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return TripRead.model_validate(trip)
+
+
 @router.delete("/{trip_id}")
 def remove_trip(
     trip_id: UUID,
@@ -119,6 +145,36 @@ def list_trip_members(
         )
         for member, user in rows
     ]
+
+
+@router.post("/{trip_id}/members", response_model=TripMemberRead, status_code=status.HTTP_201_CREATED)
+def add_trip_member(
+    trip_id: UUID,
+    payload: TripMemberAddRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TripMemberRead:
+    """Add a registered user by email. Owner only."""
+    current_member = get_trip_member(db=db, trip_id=trip_id, user_id=current_user.id)
+    if not current_member:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found")
+    if current_member.role != "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only owner can add members")
+
+    try:
+        member, user = add_member_by_email(db=db, trip_id=trip_id, email=payload.email, role=payload.role)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return TripMemberRead(
+        user_id=member.user_id,
+        email=user.email,
+        full_name=user.full_name,
+        role=member.role,
+        joined_at=member.joined_at,
+    )
 
 
 @router.post("/{trip_id}/invites", response_model=TripInviteRead, status_code=status.HTTP_201_CREATED)

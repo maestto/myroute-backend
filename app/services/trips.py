@@ -6,10 +6,11 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.v1.schemas.trip import TripCreateRequest
+from app.api.v1.schemas.trip import TripCreateRequest, TripUpdateRequest
 from app.db.models.trip import Trip
 from app.db.models.trip_activity import TripActivity
 from app.db.models.trip_member import TripMember, TripMemberRole
+from app.db.models.trip_stop import TripStop
 from app.db.models.user import User
 
 
@@ -56,6 +57,50 @@ def create_trip_for_owner(db: Session, owner: User, payload: TripCreateRequest) 
     db.commit()
     db.refresh(trip)
     return trip
+
+
+def update_trip(db: Session, trip: Trip, payload: TripUpdateRequest) -> Trip:
+    """Apply partial update; dates may not shrink past existing stops or activities."""
+    fields_set = payload.model_fields_set
+    if "title" in fields_set and payload.title is not None:
+        title = payload.title.strip()
+        if not title:
+            raise ValueError("title must not be empty")
+        trip.title = title
+    if "description" in fields_set:
+        trip.description = payload.description.strip() if payload.description else None
+    if "base_city" in fields_set:
+        trip.base_city = payload.base_city.strip() if payload.base_city else None
+    if "currency" in fields_set and payload.currency is not None:
+        trip.currency = payload.currency.upper()
+    if "budget_total" in fields_set:
+        trip.budget_total = payload.budget_total
+
+    start_date = payload.start_date if payload.start_date is not None else trip.start_date
+    end_date = payload.end_date if payload.end_date is not None else trip.end_date
+    if end_date < start_date:
+        raise ValueError("end_date must be greater than or equal to start_date")
+    if (start_date, end_date) != (trip.start_date, trip.end_date):
+        _ensure_dates_cover_children(db, trip.id, start_date, end_date)
+        trip.start_date = start_date
+        trip.end_date = end_date
+
+    db.commit()
+    db.refresh(trip)
+    return trip
+
+
+def _ensure_dates_cover_children(db: Session, trip_id: UUID, start_date, end_date) -> None:
+    outside_activity = select(TripActivity.id).where(
+        TripActivity.trip_id == trip_id,
+        (TripActivity.date < start_date) | (TripActivity.date > end_date),
+    )
+    outside_stop = select(TripStop.id).where(
+        TripStop.trip_id == trip_id,
+        (TripStop.date_from < start_date) | (TripStop.date_to > end_date),
+    )
+    if db.scalar(outside_activity) or db.scalar(outside_stop):
+        raise ValueError("Trip dates cannot exclude existing stops or activities")
 
 
 def get_trip_for_user(db: Session, trip_id: UUID, user_id: UUID) -> Trip | None:

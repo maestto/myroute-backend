@@ -30,6 +30,25 @@ def list_trip_members_with_users(db: Session, trip_id: UUID) -> list[tuple[TripM
     return list(db.execute(statement).all())
 
 
+def add_member_by_email(db: Session, trip_id: UUID, email: str, role: str) -> tuple[TripMember, User]:
+    """Add a registered user to the trip directly; invites remain for people without an account."""
+    user = db.scalar(select(User).where(User.email == email.strip().lower()))
+    if user is None:
+        raise LookupError("User with this email is not registered")
+    if get_trip_member(db=db, trip_id=trip_id, user_id=user.id):
+        raise FileExistsError("User is already a member of this trip")
+
+    member = TripMember(trip_id=trip_id, user_id=user.id, role=role)
+    db.add(member)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise FileExistsError("User is already a member of this trip") from exc
+    db.refresh(member)
+    return member, user
+
+
 def create_trip_invite(
     db: Session,
     trip_id: UUID,
