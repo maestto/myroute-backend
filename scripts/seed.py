@@ -1,12 +1,12 @@
 """Idempotent demo data seed for local runs and presentations."""
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Trip, TripInvite, TripMember, TripStop, User
+from app.db.models import Trip, TripActivity, TripInvite, TripMember, TripStop, User
 from app.db.session import SessionLocal
 from app.services.auth import create_user, get_user_by_email
 
@@ -37,6 +37,16 @@ TRIPS = [
             ("Сочи, центр", date(2026, 6, 18), date(2026, 6, 19), "Дендрарий, набережная"),
         ],
         "invite_token": "demo-invite-sochi",
+        "activities": [
+            (date(2026, 6, 12), time(14, 0), "Заселение в отель", "Адлер", None, "Адлер"),
+            (date(2026, 6, 13), time(10, 0), "Олимпийский парк", "Адлер", Decimal("1500"), "Адлер"),
+            (date(2026, 6, 14), time(9, 30), "Канатная дорога", "Роза Хутор", Decimal("3200"), "Роза Хутор"),
+            (date(2026, 6, 15), time(11, 0), "Треккинг к водопадам", "Роза Хутор", None, "Роза Хутор"),
+            (date(2026, 6, 16), time(19, 0), "Ужин в горах", "Роза Хутор", Decimal("4500"), "Роза Хутор"),
+            (date(2026, 6, 17), time(12, 0), "Термальный комплекс", "Красная Поляна", Decimal("2500"), "Красная Поляна"),
+            (date(2026, 6, 18), time(10, 0), "Дендрарий", "Сочи", Decimal("600"), "Сочи, центр"),
+            (date(2026, 6, 19), time(11, 0), "Прогулка по набережной", "Сочи", None, "Сочи, центр"),
+        ],
     },
     {
         "title": "Казань — Нижний Новгород",
@@ -54,6 +64,15 @@ TRIPS = [
             ("Нижний Новгород", date(2026, 10, 5), date(2026, 10, 6), "Кремль, Стрелка"),
         ],
         "invite_token": None,
+        "activities": [
+            (date(2026, 10, 2), time(15, 0), "Казанский кремль", "Казань", Decimal("800"), "Казань"),
+            (date(2026, 10, 3), time(11, 0), "Улица Баумана", "Казань", None, "Казань"),
+            (date(2026, 10, 3), time(19, 0), "Ужин: эчпочмаки и чак-чак", "Казань", Decimal("2000"), "Казань"),
+            (date(2026, 10, 4), time(10, 0), "Экскурсия по острову-граду", "Свияжск", Decimal("1500"), "Свияжск"),
+            (date(2026, 10, 5), time(12, 0), "Нижегородский кремль", "Нижний Новгород", Decimal("500"), "Нижний Новгород"),
+            (date(2026, 10, 5), time(18, 0), "Стрелка на закате", "Нижний Новгород", None, "Нижний Новгород"),
+            (date(2026, 10, 6), time(11, 0), "Канатная дорога через Волгу", "Нижний Новгород", Decimal("700"), "Нижний Новгород"),
+        ],
     },
 ]
 
@@ -64,9 +83,14 @@ def _ensure_user(db: Session, email: str, full_name: str) -> User:
 
 def _ensure_trip(db: Session, spec: dict, users: dict[str, User]) -> None:
     owner = users[spec["owner"]]
-    exists = db.scalar(select(Trip).where(Trip.owner_id == owner.id, Trip.title == spec["title"]))
-    if exists:
-        return
+    trip = db.scalar(select(Trip).where(Trip.owner_id == owner.id, Trip.title == spec["title"]))
+    if trip is None:
+        trip = _create_trip(db, spec, users, owner)
+    _ensure_activities(db, trip, spec)
+    _ensure_invite(db, trip, spec)
+
+
+def _create_trip(db: Session, spec: dict, users: dict[str, User], owner: User) -> Trip:
 
     trip = Trip(
         owner_id=owner.id,
@@ -97,19 +121,50 @@ def _ensure_trip(db: Session, spec: dict, users: dict[str, User]) -> None:
             )
         )
 
-    if spec["invite_token"]:
+    db.commit()
+    return trip
+
+
+def _ensure_invite(db: Session, trip: Trip, spec: dict) -> None:
+    """Keep the demo invite link valid no matter when the stack was first seeded."""
+    if not spec["invite_token"]:
+        return
+    invite = db.scalar(select(TripInvite).where(TripInvite.token == spec["invite_token"]))
+    if invite is None:
+        invite = TripInvite(
+            trip_id=trip.id,
+            created_by_user_id=trip.owner_id,
+            token=spec["invite_token"],
+            role="editor",
+            used_count=0,
+        )
+        db.add(invite)
+    invite.expires_at = datetime.now(UTC) + timedelta(days=365)
+    invite.max_uses = 100
+    db.commit()
+
+
+def _ensure_activities(db: Session, trip: Trip, spec: dict) -> None:
+    """Add activities once; lets an already seeded database pick up the new entity."""
+    has_any = db.scalar(select(TripActivity.id).where(TripActivity.trip_id == trip.id))
+    if has_any:
+        return
+    stops_by_name = {
+        stop.location_name: stop
+        for stop in db.scalars(select(TripStop).where(TripStop.trip_id == trip.id))
+    }
+    for activity_date, time_start, title, location, cost, stop_name in spec["activities"]:
         db.add(
-            TripInvite(
+            TripActivity(
                 trip_id=trip.id,
-                created_by_user_id=owner.id,
-                token=spec["invite_token"],
-                role="editor",
-                expires_at=datetime.now(UTC) + timedelta(days=30),
-                max_uses=5,
-                used_count=0,
+                stop_id=stops_by_name[stop_name].id if stop_name in stops_by_name else None,
+                title=title,
+                location=location,
+                date=activity_date,
+                time_start=time_start,
+                cost=cost,
             )
         )
-
     db.commit()
 
 

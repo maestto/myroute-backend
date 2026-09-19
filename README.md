@@ -21,6 +21,14 @@ docker compose up --build
 
 Переменные (см. `.env.example`): `SEED_DEMO_DATA=0` отключает сиды, `FRONTEND_DIR` — путь к репо фронтенда.
 
+Перед демо — чистый старт, чтобы в базе были только демо-данные:
+
+```bash
+docker compose down -v && docker compose up --build
+```
+
+Проверка: `curl localhost:8000/health` → `{"status":"ok"}`, Swagger — `http://localhost:8000/docs`.
+
 ## Локальный запуск без Docker
 
 ```bash
@@ -66,6 +74,7 @@ uvicorn app.main:app --reload
 - `GET /api/v1/trips` (Bearer token, список поездок пользователя)
 - `POST /api/v1/trips` (Bearer token, создание поездки)
 - `GET /api/v1/trips/{trip_id}` (Bearer token, overview поездки для участника)
+- `DELETE /api/v1/trips/{trip_id}` (Bearer token, owner-only, удаление поездки со всеми данными)
 - `GET /api/v1/trips/{trip_id}/members` (Bearer token, список участников поездки)
 - `POST /api/v1/trips/{trip_id}/invites` (Bearer token, owner-only, создание инвайта)
 - `POST /api/v1/invites/{token}/accept` (Bearer token, принятие инвайта)
@@ -73,6 +82,12 @@ uvicorn app.main:app --reload
 - `POST /api/v1/trips/{trip_id}/stops` (Bearer token, editor/owner, добавление остановки)
 - `PATCH /api/v1/trips/{trip_id}/stops/{stop_id}` (Bearer token, editor/owner, редактирование остановки)
 - `DELETE /api/v1/trips/{trip_id}/stops/{stop_id}` (Bearer token, editor/owner, удаление остановки)
+- `GET /api/v1/trips/{trip_id}/activities` (Bearer token, активности поездки по дням)
+- `POST /api/v1/trips/{trip_id}/activities` (Bearer token, editor/owner, добавление активности; дата — внутри дат поездки)
+- `PATCH /api/v1/trips/{trip_id}/activities/{activity_id}` (Bearer token, editor/owner)
+- `DELETE /api/v1/trips/{trip_id}/activities/{activity_id}` (Bearer token, editor/owner)
+
+`budget_spent` в обзоре поездки — сумма стоимостей активностей.
 
 ## Environment notes
 

@@ -3,7 +3,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -13,6 +13,12 @@ class TripInvite(Base):
     """Invitation token for joining a trip."""
 
     __tablename__ = "trip_invites"
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'editor', 'viewer')", name="ck_trip_invites_role_valid"),
+        CheckConstraint("max_uses > 0", name="ck_trip_invites_max_uses_positive"),
+        CheckConstraint("used_count >= 0", name="ck_trip_invites_used_count_non_negative"),
+        CheckConstraint("used_count <= max_uses", name="ck_trip_invites_used_count_within_limit"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     trip_id: Mapped[uuid.UUID] = mapped_column(

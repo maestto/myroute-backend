@@ -20,12 +20,15 @@ def register_user(payload: RegisterRequest, db: Session = Depends(get_db)) -> Us
     if existing_user:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    user = create_user(
-        db=db,
-        email=payload.email,
-        password=payload.password,
-        full_name=payload.full_name,
-    )
+    try:
+        user = create_user(
+            db=db,
+            email=payload.email,
+            password=payload.password,
+            full_name=payload.full_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return UserRead.model_validate(user)
 
 

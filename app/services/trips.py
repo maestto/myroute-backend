@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.schemas.trip import TripCreateRequest
 from app.db.models.trip import Trip
+from app.db.models.trip_activity import TripActivity
 from app.db.models.trip_member import TripMember, TripMemberRole
 from app.db.models.user import User
 
@@ -74,6 +75,14 @@ def get_trip_members_count(db: Session, trip_id: UUID) -> int:
 
 
 def get_trip_budget_spent(db: Session, trip_id: UUID) -> Decimal:
-    """Return spent amount placeholder until expenses module is implemented."""
-    del db, trip_id
-    return Decimal("0.00")
+    """Sum of activity costs; the budget is derived from planned activities."""
+    statement = select(func.coalesce(func.sum(TripActivity.cost), 0)).where(
+        TripActivity.trip_id == trip_id
+    )
+    return Decimal(db.scalar(statement) or 0).quantize(Decimal("0.01"))
+
+
+def delete_trip(db: Session, trip: Trip) -> None:
+    """Delete trip; members, invites and stops are removed by FK cascade."""
+    db.delete(trip)
+    db.commit()

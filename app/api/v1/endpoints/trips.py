@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import get_current_user
@@ -21,6 +22,7 @@ from app.services.invites import (
 from app.services.stops import create_trip_stop, delete_trip_stop, list_trip_stops, update_trip_stop
 from app.services.trips import (
     create_trip_for_owner,
+    delete_trip,
     get_trip_budget_spent,
     get_trip_for_user,
     get_trip_members_count,
@@ -28,6 +30,7 @@ from app.services.trips import (
 )
 
 router = APIRouter(prefix="/trips")
+ROUTE_CONFLICT = "Route was modified concurrently, please retry"
 
 
 @router.get("", response_model=list[TripRead])
@@ -72,6 +75,26 @@ def get_trip(
         members_count=get_trip_members_count(db=db, trip_id=trip.id),
         budget_spent=get_trip_budget_spent(db=db, trip_id=trip.id),
     )
+
+
+@router.delete("/{trip_id}")
+def remove_trip(
+    trip_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """Delete trip. Owner only."""
+    member = get_trip_member(db=db, trip_id=trip_id, user_id=current_user.id)
+    if not member:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found")
+    if member.role != "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only owner can delete trip")
+
+    trip = get_trip_for_user(db=db, trip_id=trip_id, user_id=current_user.id)
+    if trip is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip not found")
+    delete_trip(db=db, trip=trip)
+    return {"status": "deleted"}
 
 
 @router.get("/{trip_id}/members", response_model=list[TripMemberRead])
@@ -168,6 +191,8 @@ def create_stop(
         stop = create_trip_stop(db=db, trip_id=trip_id, payload=payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ROUTE_CONFLICT) from exc
     return TripStopRead.model_validate(stop)
 
 
@@ -190,6 +215,8 @@ def update_stop(
         stop = update_trip_stop(db=db, trip_id=trip_id, stop_id=stop_id, payload=payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ROUTE_CONFLICT) from exc
 
     if not stop:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stop not found")
@@ -210,7 +237,10 @@ def delete_stop(
     if member.role == "viewer":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
 
-    deleted = delete_trip_stop(db=db, trip_id=trip_id, stop_id=stop_id)
+    try:
+        deleted = delete_trip_stop(db=db, trip_id=trip_id, stop_id=stop_id)
+    except IntegrityError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=ROUTE_CONFLICT) from exc
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stop not found")
     return {"status": "deleted"}

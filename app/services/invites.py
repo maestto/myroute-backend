@@ -5,6 +5,7 @@ from secrets import token_urlsafe
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models.trip_invite import TripInvite
@@ -58,7 +59,7 @@ def create_trip_invite(
 
 def accept_trip_invite(db: Session, token: str, user_id: UUID) -> tuple[UUID, str]:
     """Accept invite and return trip membership tuple."""
-    invite = db.scalar(select(TripInvite).where(TripInvite.token == token))
+    invite = db.scalar(select(TripInvite).where(TripInvite.token == token).with_for_update())
     if not invite:
         raise LookupError("Invite not found")
 
@@ -74,15 +75,19 @@ def accept_trip_invite(db: Session, token: str, user_id: UUID) -> tuple[UUID, st
     if expires_at < now or invite.used_count >= invite.max_uses:
         raise ValueError("Invite is expired or exhausted")
 
-    member = TripMember(
-        trip_id=invite.trip_id,
-        user_id=user_id,
-        role=invite.role,
-    )
-    db.add(member)
+    trip_id, role = invite.trip_id, invite.role
+    db.add(TripMember(trip_id=trip_id, user_id=user_id, role=role))
     invite.used_count += 1
-    db.commit()
-    return invite.trip_id, member.role
+    try:
+        db.commit()
+    except IntegrityError:
+        # A concurrent accept for the same user already created the membership.
+        db.rollback()
+        existing_member = get_trip_member(db=db, trip_id=trip_id, user_id=user_id)
+        if existing_member:
+            return trip_id, existing_member.role
+        raise
+    return trip_id, role
 
 
 def _generate_unique_token(db: Session) -> str:

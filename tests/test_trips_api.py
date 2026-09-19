@@ -1,36 +1,6 @@
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.db.base import Base
-from app.db.session import get_db
 from app.main import app
-
-engine = create_engine(
-    "sqlite+pysqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-
-
-def override_get_db() -> Session:
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def setup_module() -> None:
-    Base.metadata.create_all(bind=engine)
-    app.dependency_overrides[get_db] = override_get_db
-
-
-def teardown_module() -> None:
-    app.dependency_overrides.clear()
-    Base.metadata.drop_all(bind=engine)
 
 
 def _register_and_login(client: TestClient, email: str, password: str) -> str:
@@ -138,3 +108,36 @@ def test_non_member_cannot_open_trip_detail() -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_owner_can_delete_trip_but_editor_cannot() -> None:
+    client = TestClient(app)
+    owner_token = _register_and_login(client, "trips.delete.owner@example.com", "strong-password-123")
+    create_response = client.post(
+        "/api/v1/trips",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={
+            "title": "Trip to delete",
+            "start_date": "2026-08-01",
+            "end_date": "2026-08-02",
+            "currency": "USD",
+        },
+    )
+    trip_id = create_response.json()["id"]
+
+    invite_token = client.post(
+        f"/api/v1/trips/{trip_id}/invites",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"role": "editor"},
+    ).json()["token"]
+    editor_token = _register_and_login(client, "trips.delete.editor@example.com", "strong-password-123")
+    client.post(f"/api/v1/invites/{invite_token}/accept", headers={"Authorization": f"Bearer {editor_token}"})
+
+    forbidden = client.delete(f"/api/v1/trips/{trip_id}", headers={"Authorization": f"Bearer {editor_token}"})
+    assert forbidden.status_code == 403
+
+    deleted = client.delete(f"/api/v1/trips/{trip_id}", headers={"Authorization": f"Bearer {owner_token}"})
+    assert deleted.status_code == 200
+
+    gone = client.get(f"/api/v1/trips/{trip_id}", headers={"Authorization": f"Bearer {owner_token}"})
+    assert gone.status_code == 404

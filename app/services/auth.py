@@ -1,6 +1,7 @@
 """Auth use-cases."""
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
@@ -26,7 +27,11 @@ def create_user(db: Session, email: str, password: str, full_name: str | None = 
         password_hash=hash_password(password),
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError("Email already registered") from exc
     db.refresh(user)
     return user
 

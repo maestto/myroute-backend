@@ -1,36 +1,6 @@
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
-from app.db.base import Base
-from app.db.session import get_db
 from app.main import app
-
-engine = create_engine(
-    "sqlite+pysqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-
-
-def override_get_db() -> Session:
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def setup_module() -> None:
-    Base.metadata.create_all(bind=engine)
-    app.dependency_overrides[get_db] = override_get_db
-
-
-def teardown_module() -> None:
-    app.dependency_overrides.clear()
-    Base.metadata.drop_all(bind=engine)
 
 
 def _register_and_login(client: TestClient, email: str, password: str = "strong-password-123") -> str:
@@ -196,3 +166,38 @@ def test_stop_with_invalid_dates_returns_400() -> None:
         },
     )
     assert response.status_code == 400
+
+
+def _names(client: TestClient, trip_id: str, token: str) -> list[tuple[int, str]]:
+    response = client.get(f"/api/v1/trips/{trip_id}/stops", headers={"Authorization": f"Bearer {token}"})
+    return [(item["position"], item["location_name"]) for item in response.json()]
+
+
+def test_insert_move_and_delete_in_the_middle_keep_positions_dense() -> None:
+    client = TestClient(app)
+    owner_token = _register_and_login(client, "stops.dense@example.com")
+    trip_id = _create_trip(client, owner_token, title="Dense trip")
+    headers = {"Authorization": f"Bearer {owner_token}"}
+
+    ids = {}
+    for name in ["A", "B", "C"]:
+        ids[name] = client.post(f"/api/v1/trips/{trip_id}/stops", headers=headers, json={"location_name": name}).json()["id"]
+
+    inserted = client.post(
+        f"/api/v1/trips/{trip_id}/stops", headers=headers, json={"location_name": "Z", "position": 1}
+    )
+    assert inserted.status_code == 201
+    ids["Z"] = inserted.json()["id"]
+    assert _names(client, trip_id, owner_token) == [(1, "Z"), (2, "A"), (3, "B"), (4, "C")]
+
+    moved_up = client.patch(f"/api/v1/trips/{trip_id}/stops/{ids['C']}", headers=headers, json={"position": 2})
+    assert moved_up.status_code == 200
+    assert _names(client, trip_id, owner_token) == [(1, "Z"), (2, "C"), (3, "A"), (4, "B")]
+
+    moved_down = client.patch(f"/api/v1/trips/{trip_id}/stops/{ids['Z']}", headers=headers, json={"position": 4})
+    assert moved_down.status_code == 200
+    assert _names(client, trip_id, owner_token) == [(1, "C"), (2, "A"), (3, "B"), (4, "Z")]
+
+    deleted = client.delete(f"/api/v1/trips/{trip_id}/stops/{ids['A']}", headers=headers)
+    assert deleted.status_code == 200
+    assert _names(client, trip_id, owner_token) == [(1, "C"), (2, "B"), (3, "Z")]
