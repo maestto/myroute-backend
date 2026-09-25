@@ -2,15 +2,25 @@
 
 Backend-часть проекта MyRoute на `FastAPI`.
 
-## Быстрый старт (Docker, всё одной командой)
+## Быстрый старт (Docker)
 
-Требуется Docker. Репозитории `myroute-backend` и `myroute-frontend` должны лежать рядом.
+Требуется только Docker.
 
 ```bash
 docker compose up --build
 ```
 
-Поднимает PostgreSQL, применяет миграции, заливает демо-данные и запускает backend (`http://localhost:8000`) и frontend (`http://localhost:5173`).
+Поднимает PostgreSQL, применяет миграции, заливает демо-данные и запускает API на `http://localhost:8000`. Этого достаточно, если склонирован один этот репозиторий.
+
+Весь стенд вместе с клиентом — одной командой, если репозиторий `myroute-frontend` лежит рядом:
+
+```bash
+docker compose --profile full up --build
+```
+
+Добавляет клиент на `http://localhost:5173`. Клиент стартует только после того, как API ответит на `/health`. Путь к репозиторию фронтенда меняется переменной `FRONTEND_DIR`.
+
+Клиент можно поднять и из его собственного репозитория (`cd ../myroute-frontend && docker compose up --build`) — тогда бэкенд и фронтенд разворачиваются независимо.
 
 Демо-аккаунты (пароль у всех `demo-pass-123`):
 
@@ -19,12 +29,12 @@ docker compose up --build
 - `olga@myroute.dev`, `anna@myroute.dev` — участники с ролями viewer
 - Открытый инвайт-токен для «Сочи» (роль editor): `demo-invite-sochi`
 
-Переменные (см. `.env.example`): `SEED_DEMO_DATA=0` отключает сиды, `FRONTEND_DIR` — путь к репо фронтенда.
+Переменные (см. `.env.example`): `SEED_DEMO_DATA=0` отключает сиды, `BACKEND_PORT` и `FRONTEND_PORT` меняют публикуемые порты, `FRONTEND_DIR` — путь к репозиторию фронтенда.
 
 Перед демо — чистый старт, чтобы в базе были только демо-данные:
 
 ```bash
-docker compose down -v && docker compose up --build
+docker compose down -v && docker compose --profile full up --build
 ```
 
 Проверка: `curl localhost:8000/health` → `{"status":"ok"}`, Swagger — `http://localhost:8000/docs`.

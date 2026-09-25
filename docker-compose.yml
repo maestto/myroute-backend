@@ -1,3 +1,5 @@
+name: myroute-backend
+
 services:
   db:
     image: postgres:16-alpine
@@ -18,26 +20,36 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://myroute:myroute@db:5432/myroute
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-secret-change-me-0123456789}
-      FRONTEND_BASE_URL: http://localhost:5173
-      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5173}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-1}
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
 
+  # Клиент запускается только с профилем full и требует репозиторий фронтенда рядом.
+  # Без профиля этот сервис не собирается, поэтому бэкенд разворачивается сам по себе.
   frontend:
+    profiles: ["full"]
     build: ${FRONTEND_DIR:-../myroute-frontend}
     environment:
-      VITE_API_URL: http://localhost:8000
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     volumes:
       - ${FRONTEND_DIR:-../myroute-frontend}:/app
       - /app/node_modules
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   pgdata:
